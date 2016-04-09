@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"io/ioutil"
 	"net/http"
 	"strconv"
 	"time"
@@ -16,8 +17,9 @@ import (
 // http://dilbert.com/strip/2016-04-07
 
 const (
-	CALVIN  = "http://www.gocomics.com/calvinandhobbes/"
-	DILBERT = "http://dilbert.com/strip/"
+	CALVIN    = "http://www.gocomics.com/calvinandhobbes/"
+	DILBERT   = "http://dilbert.com/strip/"
+	EXTENSION = ".gif"
 )
 
 type comicSlice []string
@@ -62,6 +64,7 @@ func main() {
 
 func fetch(comic string, time time.Time, done chan bool) error {
 
+	baseDir := "/home/babbar/Pictures/Comics"
 	dFormat := dateFormat(comic, time)
 
 	defer func() {
@@ -71,9 +74,20 @@ func fetch(comic string, time time.Time, done chan bool) error {
 
 	switch comic {
 	case "calvin":
-		return crawl(CALVIN+dFormat, calvinDocumentProcessor)
+		loc := baseDir + "/calvin-" + time.String() + EXTENSION
+		path, err := crawl(CALVIN+dFormat, calvinDocumentProcessor)
+		if err != nil {
+			fmt.Println("Unable to crawl calvin document" + err.Error())
+			return errors.New("Unable to crawl for calvin document" + err.Error())
+		}
+		return downloadDocument(*path, loc)
 	case "dilbert":
-		return crawl(DILBERT+dFormat, dilbertDocumentProcessor)
+		loc := baseDir + "/dilbert-" + time.String() + EXTENSION
+		path, err := crawl(DILBERT+dFormat, dilbertDocumentProcessor)
+		if err != nil {
+			return errors.New("Unable to crawl for dilbert document" + err.Error())
+		}
+		return downloadDocument(*path, loc)
 	default:
 		fmt.Println("Not a valid comic for downloading: " + comic)
 	}
@@ -102,26 +116,27 @@ func dateFormat(comic string, time time.Time) string {
 	return format
 }
 
-type DocumentProcessor func(reader io.ReadCloser) error
+type DocumentProcessor func(reader io.ReadCloser) (*string, error)
 
-func crawl(url string, processor DocumentProcessor) error {
+func crawl(url string, processor DocumentProcessor) (*string, error) {
 
 	resp, err := http.Get(url)
 	if err != nil {
-		return errors.New("Unable to fetch the webpage at url" + url)
+		return nil, errors.New("Unable to fetch the webpage at url" + url)
 	}
 
 	defer resp.Body.Close()
-	if err := processor(resp.Body); err != nil {
-		return errors.New("Unable to process the response body" + err.Error())
+	path, err := processor(resp.Body)
+
+	if err != nil {
+		return nil, errors.New("Unable to process the response body" + err.Error())
 	}
 
-	return nil
+	return path, nil
 }
 
-func calvinDocumentProcessor(body io.ReadCloser) error {
+func calvinDocumentProcessor(body io.ReadCloser) (*string, error) {
 
-	articleFound := false
 	parentFound := false
 
 	z := html.NewTokenizer(body)
@@ -158,32 +173,23 @@ func calvinDocumentProcessor(body io.ReadCloser) error {
 						for _, attributes := range token.Attr {
 							if attributes.Key == "src" {
 								fmt.Println(attributes.Val)
-								articleFound = true
-								break
+								return &attributes.Val, nil
 							}
 						}
 					}
 				}
-
-				break
 			}
 		}
 	}
 
-	if !articleFound {
-		return errors.New("Unable to locate the calvin strip.")
-	}
-
-	fmt.Println("Hunting for calvin strips finished.")
-	return nil
+	return nil, errors.New("Unable to locate the calvin comic strip")
 }
 
-func dilbertDocumentProcessor(body io.ReadCloser) error {
+func dilbertDocumentProcessor(body io.ReadCloser) (*string, error) {
 
 	parentFound := false
-	articleFound := false
-
 	z := html.NewTokenizer(body)
+
 	for {
 
 		tokenType := z.Next()
@@ -199,6 +205,7 @@ func dilbertDocumentProcessor(body io.ReadCloser) error {
 						// found the div for the comic.
 						fmt.Println("Found the parent container div > Dilbert")
 						parentFound = true
+						break
 					}
 				}
 			}
@@ -208,25 +215,38 @@ func dilbertDocumentProcessor(body io.ReadCloser) error {
 			token := z.Token()
 			// Locate the image under the parent div
 			if token.Data == "img" && parentFound {
-
 				fmt.Println("Found the image tag > Dilbert")
 				for _, attr := range token.Attr {
 					if attr.Key == "src" {
 						fmt.Println(attr.Val)
-						articleFound = true
-						break
+						return &attr.Val, nil
 					}
 				}
-				// Found what we are looking for.
-				fmt.Println("Going to break out of main loop > Dilbert")
-				break
 			}
 
 		}
 	}
 
-	if !articleFound {
-		return errors.New("Unable to locate the dilbert comic strip")
+	return nil, errors.New("Unable to locate the dilbert comic strip")
+}
+
+// downloadDocument: Download the document at the specified location.
+func downloadDocument(url, loc string) error {
+
+	fmt.Println("Going to download document, located at url: " + url + ", at location: " + loc)
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return errors.New("Unable to download the document " + err.Error())
+	}
+
+	contents, err := ioutil.ReadAll(resp.Body)
+	if err != nil {
+		return errors.New("Unable to read the contents of strip")
+	}
+
+	if err := ioutil.WriteFile(loc, contents, 0777); err != nil {
+		return errors.New("Unable to write the contents to the file." + err.Error())
 	}
 
 	return nil
