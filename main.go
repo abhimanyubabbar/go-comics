@@ -37,7 +37,7 @@ var directory string
 var comics comicSlice
 
 func init() {
-	flag.StringVar(&directory, "d", "~/Pictures/Comics", "default directory for downloading comics")
+	flag.StringVar(&directory, "d", "home/babbar/Pictures/Comics", "default directory for downloading comics")
 	flag.Var(&comics, "c", "calvin, dilbert")
 }
 
@@ -51,7 +51,7 @@ func main() {
 
 	done := make(chan bool)
 	for _, comic := range comics {
-		go fetch(comic, now, done)
+		go fetch(comic, directory, now, done)
 	}
 
 	fmt.Println("Synchronizing the responses.")
@@ -62,9 +62,8 @@ func main() {
 	}
 }
 
-func fetch(comic string, time time.Time, done chan bool) error {
+func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 
-	baseDir := "/home/babbar/Pictures/Comics"
 	dFormat := dateFormat(comic, time)
 
 	defer func() {
