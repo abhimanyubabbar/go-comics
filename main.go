@@ -17,9 +17,8 @@ import (
 // http://dilbert.com/strip/2016-04-07
 
 const (
-	CALVIN    = "http://www.gocomics.com/calvinandhobbes/"
-	DILBERT   = "http://dilbert.com/strip/"
-	EXTENSION = ".gif"
+	CALVIN  = "http://www.gocomics.com/calvinandhobbes/"
+	DILBERT = "http://dilbert.com/strip/"
 )
 
 type comicSlice []string
@@ -73,7 +72,7 @@ func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 
 	switch comic {
 	case "calvin":
-		loc := baseDir + "/calvin-" + time.String() + EXTENSION
+		loc := baseDir + "/calvin-" + time.String()
 		path, err := crawl(CALVIN+dFormat, calvinDocumentProcessor)
 		if err != nil {
 			fmt.Println("Unable to crawl calvin document" + err.Error())
@@ -81,7 +80,7 @@ func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 		}
 		return downloadDocument(*path, loc)
 	case "dilbert":
-		loc := baseDir + "/dilbert-" + time.String() + EXTENSION
+		loc := baseDir + "/dilbert-" + time.String()
 		path, err := crawl(DILBERT+dFormat, dilbertDocumentProcessor)
 		if err != nil {
 			return errors.New("Unable to crawl for dilbert document" + err.Error())
@@ -236,15 +235,30 @@ func downloadDocument(url, loc string) error {
 
 	resp, err := http.Get(url)
 	if err != nil {
+		fmt.Println("Someting is wrong")
 		return errors.New("Unable to download the document " + err.Error())
 	}
 
+	defer resp.Body.Close()
+
 	contents, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
+		fmt.Println("Someting is wrong in reading contents")
 		return errors.New("Unable to read the contents of strip")
 	}
 
-	if err := ioutil.WriteFile(loc, contents, 0777); err != nil {
+	format := getFormat(contents)
+
+	if format == "" {
+		fmt.Println("Someting is wrong in detecting image format")
+		return errors.New("Unable to detect the correct format of document.")
+	}
+
+	ext := "." + (format)
+	fmt.Println("extension: " + ext)
+
+	if err := ioutil.WriteFile(loc+ext, contents, 0777); err != nil {
+		fmt.Println("Someting is wrong while writing file")
 		return errors.New("Unable to write the contents to the file." + err.Error())
 	}
 
