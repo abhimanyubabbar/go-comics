@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -15,10 +16,12 @@ import (
 
 // http://www.gocomics.com/calvinandhobbes/2016/04/06
 // http://dilbert.com/strip/2016-04-07
+// http://xkcd.com/info.0.json
 
 const (
 	CALVIN  = "http://www.gocomics.com/calvinandhobbes/"
 	DILBERT = "http://dilbert.com/strip/"
+	XKCD    = "http://xkcd.com/info.0.json"
 )
 
 type comicSlice []string
@@ -86,6 +89,14 @@ func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 			return errors.New("Unable to crawl for dilbert document" + err.Error())
 		}
 		return downloadDocument(*path, loc)
+	case "xkcd":
+		loc := baseDir + "/xkcd" + time.String()
+		path, err := crawl(XKCD, xkcdDocumentProcessor)
+		if err != nil {
+			return errors.New("Unable to crawl for xkcd document" + err.Error())
+		}
+		return downloadDocument(*path, loc)
+
 	default:
 		fmt.Println("Not a valid comic for downloading: " + comic)
 	}
@@ -131,6 +142,21 @@ func crawl(url string, processor DocumentProcessor) (*string, error) {
 	}
 
 	return path, nil
+}
+
+func xkcdDocumentProcessor(body io.ReadCloser) (*string, error) {
+
+	var xkcd Xkcd
+	decoder := json.NewDecoder(body)
+
+	fmt.Println("Started crawling for xkcd document")
+
+	if err := decoder.Decode(&xkcd); err != nil {
+		return nil, errors.New("Unable to extract the xkcd details: " + err.Error())
+	}
+
+	fmt.Printf("%#v", xkcd)
+	return &xkcd.Image, nil
 }
 
 func calvinDocumentProcessor(body io.ReadCloser) (*string, error) {

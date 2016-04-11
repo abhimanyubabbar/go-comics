@@ -4,6 +4,11 @@ import (
 	"fmt"
 )
 
+type Xkcd struct {
+	Title string `json:"title"`
+	Image string `json:"img"`
+}
+
 func getFormat(contents []byte) string {
 	if len(contents) < 4 {
 
