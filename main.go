@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -10,8 +9,6 @@ import (
 	"net/http"
 	"strconv"
 	"time"
-
-	"golang.org/x/net/html"
 )
 
 // http://www.gocomics.com/calvinandhobbes/2016/04/06
@@ -73,34 +70,32 @@ func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 		done <- true
 	}()
 
+	var loc, url string
+	var processor DocumentProcessor
+
 	switch comic {
 	case "calvin":
-		loc := baseDir + "/calvin-" + time.String()
-		path, err := crawl(CALVIN+dFormat, calvinDocumentProcessor)
-		if err != nil {
-			fmt.Println("Unable to crawl calvin document" + err.Error())
-			return errors.New("Unable to crawl for calvin document" + err.Error())
-		}
-		return downloadDocument(*path, loc)
+		loc = baseDir + "/calvin-" + time.String()
+		url = CALVIN + dFormat
+		processor = calvinDocumentProcessor
 	case "dilbert":
-		loc := baseDir + "/dilbert-" + time.String()
-		path, err := crawl(DILBERT+dFormat, dilbertDocumentProcessor)
-		if err != nil {
-			return errors.New("Unable to crawl for dilbert document" + err.Error())
-		}
-		return downloadDocument(*path, loc)
+		loc = baseDir + "/dilbert-" + time.String()
+		url = DILBERT + dFormat
+		processor = dilbertDocumentProcessor
 	case "xkcd":
-		loc := baseDir + "/xkcd" + time.String()
-		path, err := crawl(XKCD, xkcdDocumentProcessor)
-		if err != nil {
-			return errors.New("Unable to crawl for xkcd document" + err.Error())
-		}
-		return downloadDocument(*path, loc)
-
+		loc = baseDir + "/xkcd" + time.String()
+		url = XKCD
+		processor = xkcdDocumentProcessor
 	default:
-		fmt.Println("Not a valid comic for downloading: " + comic)
+		return errors.New("Not a valid comic for downloading: " + comic)
 	}
-	return nil
+
+	path, err := crawl(url, processor)
+	if err != nil {
+		fmt.Println("Unable to crawl calvin document" + err.Error())
+		return errors.New("Unable to crawl for calvin document" + err.Error())
+	}
+	return downloadDocument(*path, loc)
 }
 
 func dateFormat(comic string, time time.Time) string {
@@ -142,116 +137,6 @@ func crawl(url string, processor DocumentProcessor) (*string, error) {
 	}
 
 	return path, nil
-}
-
-func xkcdDocumentProcessor(body io.ReadCloser) (*string, error) {
-
-	var xkcd Xkcd
-	decoder := json.NewDecoder(body)
-
-	fmt.Println("Started crawling for xkcd document")
-
-	if err := decoder.Decode(&xkcd); err != nil {
-		return nil, errors.New("Unable to extract the xkcd details: " + err.Error())
-	}
-
-	fmt.Printf("%#v", xkcd)
-	return &xkcd.Image, nil
-}
-
-func calvinDocumentProcessor(body io.ReadCloser) (*string, error) {
-
-	parentFound := false
-
-	z := html.NewTokenizer(body)
-	for {
-		tokenType := z.Next()
-		switch tokenType {
-
-		case html.StartTagToken:
-			token := z.Token()
-			if token.Data == "div" {
-				for _, attr := range token.Attr {
-					if attr.Key == "class" &&
-						attr.Val == "feature" {
-						// found the div for the comic.
-						fmt.Println("Found the parent container div > Calvin")
-						parentFound = true
-					}
-				}
-			}
-
-		case html.SelfClosingTagToken:
-			token := z.Token()
-			// Locate the image under the parent div
-			if token.Data == "img" && parentFound {
-				for _, attr := range token.Attr {
-
-					// attributes key and values.
-					if attr.Key == "alt" &&
-						attr.Val == "Calvin and Hobbes" {
-
-						fmt.Println("Found the img token > Calvin")
-						// again iterate to check for the
-						// values
-						for _, attributes := range token.Attr {
-							if attributes.Key == "src" {
-								fmt.Println(attributes.Val)
-								return &attributes.Val, nil
-							}
-						}
-					}
-				}
-			}
-		}
-	}
-
-	return nil, errors.New("Unable to locate the calvin comic strip")
-}
-
-func dilbertDocumentProcessor(body io.ReadCloser) (*string, error) {
-
-	parentFound := false
-	z := html.NewTokenizer(body)
-
-	for {
-
-		tokenType := z.Next()
-		switch tokenType {
-
-		case html.StartTagToken:
-			token := z.Token()
-			if token.Data == "div" {
-
-				for _, attr := range token.Attr {
-					if attr.Key == "class" &&
-						attr.Val == "img-comic-container" {
-						// found the div for the comic.
-						fmt.Println("Found the parent container div > Dilbert")
-						parentFound = true
-						break
-					}
-				}
-			}
-
-		case html.SelfClosingTagToken:
-
-			token := z.Token()
-			// Locate the image under the parent div
-			if token.Data == "img" && parentFound {
-				fmt.Println("Found the image tag > Dilbert")
-				for _, attr := range token.Attr {
-					if attr.Key == "src" {
-						fmt.Println(attr.Val)
-						return &attr.Val, nil
-					}
-				}
-			}
-
-		}
-	}
-
-	return nil, errors.New("Unable to locate the dilbert comic strip")
 }
 
 // downloadDocument: Download the document at the specified location.
