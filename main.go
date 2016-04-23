@@ -7,7 +7,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 	"time"
 )
 
@@ -40,7 +39,7 @@ func init() {
 	flag.Var(&comics, "c", "calvin, dilbert")
 }
 
-func main() {
+func mainUpdated() {
 
 	fmt.Println("Parsing the flags")
 	flag.Parse()
@@ -59,6 +58,106 @@ func main() {
 	for range comics {
 		<-done
 	}
+}
+
+func main() {
+
+	fmt.Println("Parsing the flags")
+	flag.Parse()
+
+	fmt.Println("Started looking for your comics.")
+	now := time.Now()
+
+	done := make(chan bool)
+
+	// publisher channel over which
+	// we publish the comics.
+	comicChan := publisherRoutine()
+
+	// start the fetch routine over which they
+	// extract the information for the document.
+	downloadChan := fetchRoutine(comicChan, directory, now)
+
+	// We would like to split the
+	// work between two downloaders.
+	downloadWorker := 2
+	for i := 0; i < downloadWorker; i++ {
+		downloadRoutine(downloadChan, done)
+	}
+
+	// FIXME: Fix this step to a more elegant solution.
+	// sync step to let the downloaders finish
+	for i := 0; i < downloadWorker; i++ {
+		<-done
+	}
+
+}
+
+func publisherRoutine() chan string {
+	comicChan := make(chan string)
+
+	go func() {
+		for _, comic := range comics {
+			comicChan <- comic
+		}
+		close(comicChan)
+	}()
+
+	return comicChan
+}
+
+// fetchRoutine based on the comics generates the
+// FIXME : How to handle the errors in this routine elegantly.
+// If not handled properly, we may end up in deadlock
+func fetchRoutine(comicChan <-chan string, baseDir string, time time.Time) chan ComicDownload {
+
+	downloadChan := make(chan ComicDownload, 1)
+
+	go func() {
+
+		for comic := range comicChan {
+
+			dFormat := dateFormat(comic, time)
+			var loc, url string
+			var processor DocumentProcessor
+
+			switch comic {
+			case "calvin":
+				loc = baseDir + "/calvin-" + time.String()
+				url = CALVIN + dFormat
+				processor = calvinDocumentProcessor
+			case "dilbert":
+				loc = baseDir + "/dilbert-" + time.String()
+				url = DILBERT + dFormat
+				processor = dilbertDocumentProcessor
+			case "xkcd":
+				loc = baseDir + "/xkcd" + time.String()
+				url = XKCD
+				processor = xkcdDocumentProcessor
+			default:
+				fmt.Println("Not a valid comic for downloading: " + comic)
+				continue
+			}
+
+			downloadLink, err := crawl(url, processor)
+			if err != nil {
+				fmt.Println("Unable to crawl calvin document" + err.Error())
+				continue
+			}
+
+			comicDownload := ComicDownload{
+				url:  *downloadLink,
+				path: loc,
+			}
+			// Once we have successfully crawled a document, send the link generated
+			// from the document.
+			downloadChan <- comicDownload
+		}
+
+		close(downloadChan)
+	}()
+
+	return downloadChan
 }
 
 func fetch(comic, baseDir string, time time.Time, done chan bool) error {
@@ -98,28 +197,6 @@ func fetch(comic, baseDir string, time time.Time, done chan bool) error {
 	return downloadDocument(*path, loc)
 }
 
-func dateFormat(comic string, time time.Time) string {
-
-	format := ""
-	year, month, date := time.Date()
-	switch comic {
-	case "calvin":
-		format = strconv.Itoa(year) + "/" +
-			strconv.Itoa(int(month)) + "/" +
-			strconv.Itoa(date)
-	case "dilbert":
-		format = strconv.Itoa(year) + "-" +
-			strconv.Itoa(int(month)) + "-" +
-			strconv.Itoa(date)
-	default:
-		format = strconv.Itoa(year) + "/" +
-			strconv.Itoa(int(month)) + "/" +
-			strconv.Itoa(date)
-	}
-
-	return format
-}
-
 type DocumentProcessor func(reader io.ReadCloser) (*string, error)
 
 func crawl(url string, processor DocumentProcessor) (*string, error) {
@@ -137,6 +214,50 @@ func crawl(url string, processor DocumentProcessor) (*string, error) {
 	}
 
 	return path, nil
+}
+
+func downloadRoutine(downloadChan <-chan ComicDownload, done chan bool) {
+
+	go func() {
+
+		defer func() {
+			done <- true
+		}()
+
+		for obj := range downloadChan {
+
+			fmt.Println("Going to download document, located at url: " +
+				obj.url + ", at location: " + obj.path)
+
+			resp, err := http.Get(obj.url)
+			if err != nil {
+				fmt.Println("Unable to download the document " + err.Error())
+				continue
+			}
+
+			defer resp.Body.Close()
+
+			contents, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				fmt.Println("Unable to read the contents of strip")
+			}
+
+			format := getFormat(contents)
+
+			if format == "" {
+				fmt.Println("Unable to detect the correct format of document.")
+				continue
+			}
+
+			ext := "." + (format)
+			fmt.Println("extension: " + ext)
+
+			if err := ioutil.WriteFile(obj.path+ext, contents, 0777); err != nil {
+				fmt.Println("Unable to write the contents to the file." + err.Error())
+				continue
+			}
+		}
+	}()
 }
 
 // downloadDocument: Download the document at the specified location.

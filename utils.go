@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
+	"time"
 
 	"golang.org/x/net/html"
 )
@@ -12,6 +14,11 @@ import (
 type Xkcd struct {
 	Title string `json:"title"`
 	Image string `json:"img"`
+}
+
+type ComicDownload struct {
+	url  string `json:"url"`
+	path string `json:"path"`
 }
 
 func getFormat(contents []byte) string {
@@ -40,6 +47,28 @@ func getFormat(contents []byte) string {
 	}
 
 	return ""
+}
+
+func dateFormat(comic string, time time.Time) string {
+
+	format := ""
+	year, month, date := time.Date()
+	switch comic {
+	case "calvin":
+		format = strconv.Itoa(year) + "/" +
+			strconv.Itoa(int(month)) + "/" +
+			strconv.Itoa(date)
+	case "dilbert":
+		format = strconv.Itoa(year) + "-" +
+			strconv.Itoa(int(month)) + "-" +
+			strconv.Itoa(date)
+	default:
+		format = strconv.Itoa(year) + "/" +
+			strconv.Itoa(int(month)) + "/" +
+			strconv.Itoa(date)
+	}
+
+	return format
 }
 
 func xkcdDocumentProcessor(body io.ReadCloser) (*string, error) {
